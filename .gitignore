@@ -1,0 +1,41 @@
+# ---- Terraform ----
+# Local plugin directory and cache
+.terraform/
+# State files
+*.tfstate
+*.tfstate.backup
+# Plan files
+*.tfplan
+# Crash logs
+crash.log
+# Override files (optional)
+override.tf
+override.tf.json
+# Variable definitions (may contain secrets)
+*.tfvars
+# Dependency lock file (optional)
+.terraform.lock.hcl
+
+# ---- Ansible ----
+# Retry files from failed plays
+*.retry
+# Fact cache directory (if used)
+.fact-cache/
+# Vault password files (do not commit!)
+*.vault_pass
+# Ansible execution logs
+ansible.log
+# Ansible generated files
+ansible/group_vars/*
+
+# ---- General ----
+# macOS Finder
+.DS_Store
+# Windows thumbnail cache
+Thumbs.db
+# Vim swap files
+*.swp
+# VS Code settings folder
+.vscode/
+# JetBrains IDE folder
+.idea/

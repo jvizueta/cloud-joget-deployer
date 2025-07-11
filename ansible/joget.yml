@@ -1,0 +1,202 @@
+---
+- name: Install Joget DX 8
+  hosts: all
+  become: yes
+  vars:
+    joget_version: "8.0.10"
+    install_dir: "/opt/joget"
+    mysql_root_password: "secure_root_password" 
+    db_name: "jogetdb"
+    db_user: "jogetuser"
+    db_password: "secure_password"
+    download_url: "https://download.joget.org/enterprise/joget-enterprise-linux-{{ joget_version }}.tar.gz"
+    joget_domain: "joget8.subdomain.domain.com"
+    certbot_email: "valid@email.com"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+    
+    - name: Install Java 11 (OpenJDK)
+      apt:
+        name: openjdk-11-jre-headless
+        state: present
+      tags: java  # :contentReference[oaicite:0]{index=0}
+
+    - name: Install MySQL Server
+      apt:
+        name: mysql-server
+        state: present
+      tags: mysql # :contentReference[oaicite:1]{index=1}
+
+    - name: Install PyMySQL
+      apt:
+        name: python3-pymysql
+        state: present
+      tags: pymysql  # :contentReference[oaicite:2]{index=2}
+
+    - name: Guarantee mysql is running
+      service:
+        name: mysql
+        state: started
+        enabled: yes
+
+    - name: Create MySQL database
+      community.mysql.mysql_db:
+        name: "{{ db_name }}"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+
+    - name: Create MySQL user
+      community.mysql.mysql_user:
+        name: "{{ db_user }}"
+        password: "{{ db_password }}"
+        priv: "{{ db_name }}.*:ALL"
+        host: "localhost"
+        state: present
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+    
+    - name: Create installation directory
+      file:
+        path: "{{ install_dir }}"
+        state: directory
+        mode: '0755'
+
+    - name: Download Joget DX 8
+      get_url:
+        url: "{{ download_url}}"
+        dest: "/tmp/joget-enterprise-linux-{{ joget_version }}.tar.gz"
+      register: download
+
+    - name: Extract Joget DX 8
+      unarchive:
+        src: "/tmp/joget-enterprise-linux-{{ joget_version }}.tar.gz"
+        dest: "{{ install_dir }}"
+        remote_src: yes
+      when: download.changed 
+      tags: joget  # :contentReference[oaicite:3]{index=3}
+
+    - name: Configure Joget datasource (MySQL)
+      copy:
+        dest: "{{ install_dir }}/joget-enterprise-linux-{{ joget_version }}/wflow/app_datasource-default.properties"
+        content: |
+          workflowDriver=com.mysql.jdbc.Driver
+          workflowUrl=jdbc\:mysql\://localhost\:3307/{{ db_name }}?characterEncoding\=UTF-8&useSSL>
+          workflowUser={{ db_user }}
+          profileName=joget_mysql_localhost
+          workflowPassword={{ db_password }}
+      tags: config_db  # :contentReference[oaicite:4]{index=4}
+
+    - name: Find Apache Tomcat directory inside Joget
+      find:
+        paths: "{{ install_dir }}/joget-enterprise-linux-{{ joget_version }}"
+        patterns: "apache-tomcat*"
+        file_type: directory
+      register: tomcat_dir
+
+    - name: Set Tomcat path
+      set_fact:
+        tomcat_path: "{{ tomcat_dir.files[0].path }}"
+
+    - name: Create unit file systemd for Joget DX 8
+      copy:
+        dest: /etc/systemd/system/joget.service
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          [Unit]
+          Description=Joget DX 8
+          After=network.target mysql.service
+
+          [Service]
+          Type=forking
+          WorkingDirectory={{ tomcat_path }}/bin
+          ExecStart={{ tomcat_path }}/bin/startup.sh
+          ExecStop={{ tomcat_path }}/bin/shutdown.sh
+          Restart=on-failure
+
+          [Install]
+          WantedBy=multi-user.target
+      tags: systemd
+
+    - name: Reload the systemctl daemon
+      command: systemctl daemon-reload
+      tags: systemd
+
+    - name: Enable the Joget service to start on boot
+      systemd:
+        name: joget
+        enabled: yes
+      tags: systemd
+
+    - name: Start the Joget DX 8 service
+      systemd:
+        name: joget
+        state: started
+      tags: systemd
+
+    - name: Install Nginx and Certbot
+      apt:
+        name:
+          - nginx
+          - certbot
+          - python3-certbot-nginx
+        state: present
+        update_cache: yes
+      tags: nginx  # :contentReference[oaicite:5]{index=5}
+
+    - name: Deploy Nginx reverse proxy config for Joget
+      copy:
+        dest: /etc/nginx/sites-available/joget
+        content: |
+          server {
+              listen 80;
+              server_name {{ joget_domain }};  # Replace with your domain
+
+              client_max_body_size 200M;  # Adjust as needed
+
+              location / {
+                  proxy_pass         http://localhost:8080/;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+              }
+          }
+      notify: Reload Nginx
+      tags: nginx  # :contentReference[oaicite:6]{index=6}
+
+    - name: Enable Joget site in Nginx
+      file:
+        src: /etc/nginx/sites-available/joget
+        dest: /etc/nginx/sites-enabled/joget
+        state: link
+      notify: Reload Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Reload Nginx
+
+    - name: Ensure Nginx is running
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+
+    - name: Obtain and install Let's Encrypt certificate
+      command: >
+        certbot --nginx --non-interactive --agree-tos
+        --email {{ certbot_email }}
+        -d {{ joget_domain }}
+      args:
+        creates: /etc/letsencrypt/live/{{ joget_domain }}/fullchain.pem
+      notify: Reload Nginx
+
+  handlers:
+    - name: Reload Nginx
+      service:
+        name: nginx
+        state: reloaded
