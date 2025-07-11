@@ -3,7 +3,7 @@
 ## What is Joget?
 Joget is a no-code/low-code platform that helps people build web and mobile apps without needing to write a lot of code.
 
-## What does it do?
+## What does the code in this repo do?
 Creates a Joget VM in Azure with the following resources:
 
 ### Terraform:
