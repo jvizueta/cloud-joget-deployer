@@ -1,4 +1,4 @@
-# Cloud Joget Deployer
+# Joget Cloud Deployer
 
 ## What is Joget?
 Joget is a no-code/low-code platform that helps people build web and mobile apps without needing to write a lot of code.
